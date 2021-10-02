@@ -1,3 +1,5 @@
+<?php
+
 /**
 * Plugin Name
 *
@@ -22,3 +24,7 @@
 * Text Domain: my-basics-plugin
 * Domain Path: /languages
 */
+
+const PLUGIN_FILE_URL = __FILE__;
+
+include_once('functions.php') ;
