@@ -48,14 +48,6 @@ function product_seeder(){
 register_activation_hook(PLUGIN_FILE_URL, 'product_seeder');
 
 function drop_product_table_uninstall() {
-    global $wpdb;
-
-    $table_name = $wpdb->prefix . 'products';
-    $sql = "DROP TABLE IF EXISTS $table_name";
-
-    //require_once(ABSPATH.'wp-admin/includes/upgrade.php');
-    $wpdb->query($sql);
-    //dbDelta($sql);
 
     delete_option("product_table_version");
 }
@@ -374,3 +366,43 @@ function custom_crud_asset() {
 }
 
 add_action( 'admin_init','custom_crud_asset');
+
+function crud_shortcodes( $atts = [], $content = null, $tag = '' ) {
+    // normalize attribute keys, lowercase
+    $atts = array_change_key_case( (array) $atts, CASE_LOWER );
+
+    // override default attributes with user attributes
+    $new_atts = shortcode_atts(
+        array(
+            'title' => 'WordPress.org',
+        ), $atts, $tag
+    );
+
+    // start box
+    $o = '<div class="product-box">';
+
+    // title
+    $o .= '<h2>' . esc_html__( $new_atts['title'], 'custom_product_crud' ) . '</h2>';
+
+    // enclosing tags
+    if ( ! is_null( $content ) ) {
+        // secure output by executing the_content filter hook on $content
+        $o .= apply_filters( 'the_content', $content );
+
+        // run shortcode parser recursively
+        $o .= do_shortcode( $content );
+    }
+
+    // end box
+    $o .= '</div>';
+
+    // return output
+    return $o;
+}
+
+
+function crud_shortcodes_init() {
+    add_shortcode( 'product_crud_shortcodes', 'crud_shortcodes' );
+}
+
+add_action( 'init', 'crud_shortcodes_init' );
