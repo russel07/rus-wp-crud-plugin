@@ -48,14 +48,6 @@ function product_seeder(){
 register_activation_hook(PLUGIN_FILE_URL, 'product_seeder');
 
 function drop_product_table_uninstall() {
-    global $wpdb;
-
-    $table_name = $wpdb->prefix . 'products';
-    $sql = "DROP TABLE IF EXISTS $table_name";
-
-    //require_once(ABSPATH.'wp-admin/includes/upgrade.php');
-    $wpdb->query($sql);
-    //dbDelta($sql);
 
     delete_option("product_table_version");
 }
@@ -97,6 +89,18 @@ class ProductTableHandler extends WP_List_Table{
             'product_title' => __('Title', 'custom_product_crud'),
             'product_description' => __('Description', 'custom_product_crud'),
             'price' => __('Price $', 'custom_product_crud'),
+            'actions' =>__('Action', 'custom_product_crud'),
+        );
+    }
+
+    function column_actions($item){
+        $actions = array(
+            'edit' => sprintf('<a href="?page=add-product&id=%s">%s</a>', $item['id'], __('Edit', 'custom_product_crud')),
+            'delete' => sprintf('<a href="?page=%s&action=delete&id=%s">%s</a>', $_REQUEST['page'], $item['id'], __('Delete', 'custom_product_crud')),
+        );
+
+        return sprintf( '%s',
+            $this->row_actions($actions)
         );
     }
 
@@ -170,14 +174,17 @@ class ProductTableHandler extends WP_List_Table{
 
 function manage_product_html() {
     //require_once('admin/view/hello-world.php');
-    global $wpdb;
+    //global $wpdb;
 
     $table = new ProductTableHandler();
     $table->prepare_items();
 
     $message = '';
     if ('delete' === $table->current_action()) {
-        $message = '<div class="updated below-h2" id="message"><p>' . sprintf(__('Items deleted: %d', 'custom_product_crud'), count($_REQUEST['id'])) . '</p></div>';
+        if(is_array($_REQUEST['id']))
+            $message = '<div class="updated below-h2" id="message"><p>' . sprintf(__('Items deleted: %d', 'custom_product_crud'), count($_REQUEST['id'])) . '</p></div>';
+        else
+        $message = '<div class="updated below-h2" id="message"><p>' . __('Items deleted successfully', 'custom_product_crud') . '</p></div>';
     }
     ?>
     <div class="wrap">
@@ -210,7 +217,41 @@ function add_product_form(){
         'price' => 0.0,
     );
 
-    $item = $default;
+    if(isset($_REQUEST['nonce']) && wp_verify_nonce($_REQUEST['nonce'], basename(__FILE__))){
+        $item = shortcode_atts($default, $_REQUEST);
+        $item_valid = validate_product_form_data($item);
+
+        if($item_valid === true){
+            if ($item['id'] == 0) {
+                $result = $wpdb->insert($table_name, $item);
+                $item['id'] = $wpdb->insert_id;
+                if ($result) {
+                    $message = __('Item saved successfully', 'custom_product_crud');
+                } else {
+                    $notice = __('There is an error while saving item!!', 'custom_product_crud');
+                }
+            } else {
+                $result = $wpdb->update($table_name, $item, array('id' => $item['id']));
+                if ($result) {
+                    $message = __('Item updated successfully ', 'custom_product_crud');
+                } else {
+                    $notice = __('TThere is an error while updating item', 'custom_product_crud');
+                }
+            }
+        }else{
+            $notice = $item_valid;
+        }
+    }else {
+        $item = $default;
+        if (isset($_REQUEST['id'])) {
+            $item = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $_REQUEST['id']), ARRAY_A);
+            if (!$item) {
+                $item = $default;
+                $notice = __('Item not found', 'custom_product_crud');
+            }
+        }
+    }
+
     add_meta_box('product_form_meta_box', 'Product Data', 'get_product_form', 'product', 'normal', 'default');
     ?>
     <div class="wrap">
@@ -228,12 +269,12 @@ function add_product_form(){
         <form id="form" method="POST">
             <input type="hidden" name="nonce" value="<?php echo wp_create_nonce(basename(__FILE__))?>"/>
 
-            <input type="hidden" name="id" value=""/>
+            <input type="hidden" name="id" value="<?php echo $item['id'] ?>"/>
 
             <div class="metabox-holder" id="poststuff">
                 <div id="post-body">
                     <div id="post-body-content">
-                        <?php do_meta_boxes('person', 'normal', $item); ?>
+                        <?php do_meta_boxes('product', 'normal', $item); ?>
 
                         <input type="submit" value="<?php _e('Save', 'custom_product_crud')?>" id="submit" class="button-primary" name="submit">
                     </div>
@@ -260,7 +301,7 @@ function get_product_form($item){?>
                 <label for="product_description"><?php _e('Description', 'custom_product_crud')?></label>
             </th>
             <td>
-                <textarea id="product_description" name="product_description" style="width: 95%" size="200" class="code" placeholder="<?php _e('Product Description', 'custom_product_crud')?>" required></textarea>
+                <textarea id="product_description" name="product_description" style="width: 95%" size="200" class="code" placeholder="<?php _e('Product Description', 'custom_product_crud')?>" required><?php echo esc_attr($item['product_description'])?></textarea>
             </td>
         </tr>
         <tr class="form-field">
@@ -276,6 +317,18 @@ function get_product_form($item){?>
     </table>
 
 <?php   }
+
+function validate_product_form_data($item){
+    $messages = array();
+
+    if (empty($item['product_title'])) $messages[] = __('Product title can not be blank', 'custom_product_crud');
+    if (empty($item['product_description'])) $messages[] = __('Product Description can not be blank', 'custom_product_crud');
+    if (empty($item['price'])) $messages[] = __('Price can not be blank', 'custom_product_crud');
+    if (!is_numeric($item['price'])) $messages[] = __('Product price should be a valid number', 'custom_product_crud');
+
+    if (empty($messages)) return true;
+    return implode('<br />', $messages);
+}
 
 function products_admin_menu() {
     add_menu_page(
@@ -306,3 +359,50 @@ function products_admin_menu() {
 }
 
 add_action('admin_menu', 'products_admin_menu');
+
+function custom_crud_asset() {
+    wp_register_style('custom_crud_asset', plugins_url('/rus-wp-crud-plugin/public/css/custom_crud_style.css'));
+    wp_enqueue_style('custom_crud_asset');
+}
+
+add_action( 'admin_init','custom_crud_asset');
+
+function crud_shortcodes( $atts = [], $content = null, $tag = '' ) {
+    // normalize attribute keys, lowercase
+    $atts = array_change_key_case( (array) $atts, CASE_LOWER );
+
+    // override default attributes with user attributes
+    $new_atts = shortcode_atts(
+        array(
+            'title' => 'WordPress.org',
+        ), $atts, $tag
+    );
+
+    // start box
+    $o = '<div class="product-box">';
+
+    // title
+    $o .= '<h2>' . esc_html__( $new_atts['title'], 'custom_product_crud' ) . '</h2>';
+
+    // enclosing tags
+    if ( ! is_null( $content ) ) {
+        // secure output by executing the_content filter hook on $content
+        $o .= apply_filters( 'the_content', $content );
+
+        // run shortcode parser recursively
+        $o .= do_shortcode( $content );
+    }
+
+    // end box
+    $o .= '</div>';
+
+    // return output
+    return $o;
+}
+
+
+function crud_shortcodes_init() {
+    add_shortcode( 'product_crud_shortcodes', 'crud_shortcodes' );
+}
+
+add_action( 'init', 'crud_shortcodes_init' );
